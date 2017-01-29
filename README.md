@@ -6,6 +6,8 @@ A free, user-friendly, extendable application and API for drone image processing
 
 ![Alt text](/screenshots/ui-mockup.png?raw=true "WebODM")
 
+![Alt text](/screenshots/pointcloud.png?raw=true "3D Display")
+
 ![Alt text](/screenshots/dashboard.png?raw=true "Dashboard")
 
 [![WebODM - An Introduction to a Web Interface for OpenDroneMap to Make Drone Mapping Even Easier](https://img.youtube.com/vi/UnN-NzL96T8/0.jpg)](https://www.youtube.com/watch?v=UnN-NzL96T8 "WebODM - An Introduction to a Web Interface for OpenDroneMap to Make Drone Mapping Even Easier")
@@ -21,10 +23,8 @@ If you know Python, web technologies (JS, HTML, CSS, etc.) or both, make a fork,
 
 * From the Docker Quickstart Terminal (Windows) or from the command line (Mac / Linux) type:
 ```bash
-git clone https://github.com/OpenDroneMap/WebODM
+git clone https://github.com/OpenDroneMap/WebODM --config core.autocrlf=input
 cd WebODM
-easy_install pip || sudo easy_install pip
-pip install docker-compose || sudo pip install docker-compose
 ./webodm.sh start
 ```
 
@@ -68,6 +68,8 @@ sudo pip install --ignore-installed six
 
 If you are getting a **MemoryError** while processing the images, make sure that your Docker environment has enough RAM allocated. http://stackoverflow.com/a/39720010
 
+If you are getting a `django.contrib.auth.models.DoesNotExist: Permission matching query does not exist.` after an update, try to remove your WebODM folder and start from a fresh git clone.
+
 Have you had other issues? Please [report them](https://github.com/OpenDroneMap/WebODM/issues/new) so that we can include them in this document.
 
 ### Add More Processing Nodes
@@ -81,6 +83,7 @@ If you want to run WebODM natively, you will need to install:
  * PostGIS 2.3
  * Python 3.5
  * GDAL (>= 2.1)
+ * Node.js (>= 6.0)
 
 On Linux, make sure you have:
 
@@ -140,12 +143,29 @@ SELECT PostGIS_Full_Version();
 
 You may also need to set the environment variable PROJSO to the .so or .dll projection library your PostGIS is using. This just needs to have the name of the file. So for example on Windows, you would in Control Panel -> System -> Environment Variables add a system variable called PROJSO and set it to libproj.dll (if you are using proj 4.6.1). You'll have to restart your PostgreSQL service/daemon after this change. [http://postgis.net/docs/manual-2.0/RT_ST_Transform.html](http://postgis.net/docs/manual-2.0/RT_ST_Transform.html)
 
+If you are using Windows and are unable to go past the `pip install -r requirements.txt` command because of an error regarding zlib and Pillow, manually edit the `requirements.txt` file, remove the Pillow requirement and run:
+
+```bash
+easy_install pillow
+pip install -r requirements.txt
+```
+
+On Windows make sure that all of your PATH environment variables are set properly. These commands:
+
+```bash
+python --version
+pip --version
+npm --version
+gdalinfo --version
+```
+Should all work without errors.
+
 ## Roadmap
 - [X] User Registration / Authentication
 - [X] UI mockup
 - [X] Task Processing
 - [X] 2D Map Display 
-- [ ] 3D model display
+- [X] 3D Model Display
 - [ ] Volumetric Measurements
 - [X] Cluster management and setup.
 - [ ] Mission Planner
