@@ -12,7 +12,7 @@ from .api_client import ApiClient
 import json
 from django.db.models import signals
 from requests.exceptions import ConnectionError
-from .exceptions import ProcessingException
+from .exceptions import ProcessingError, ProcessingTimeout
 import simplejson
 def api(func):
     """
@@ -23,7 +23,9 @@ def api(func):
         try:
             return func(*args, **kwargs)
         except (json.decoder.JSONDecodeError, simplejson.JSONDecodeError) as e:
-            raise ProcessingException(str(e))
+            raise ProcessingError(str(e))
+        except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError) as e:
+            raise ProcessingTimeout(str(e))
 
 
     return wrapper
@@ -58,7 +60,7 @@ class ProcessingNode(models.Model):
             self.last_refreshed = timezone.now()
             self.save()
             return True
-        except:
+        except (ConnectionError, json.decoder.JSONDecodeError, simplejson.JSONDecodeError):
             return False
 
     def api_client(self):
@@ -83,18 +85,20 @@ class ProcessingNode(models.Model):
 
         :returns UUID of the newly created task
         """
-        if len(images) < 2: raise ProcessingException("Need at least 2 images")
+        if len(images) < 2: raise ProcessingError("Need at least 2 images")
 
         api_client = self.api_client()
         try:
             result = api_client.new_task(images, name, options)
         except requests.exceptions.ConnectionError as e:
-            raise ProcessingException(e)
+            raise ProcessingError(e)
 
-        if result['uuid']:
+        if isinstance(result, dict) and 'uuid' in result:
             return result['uuid']
-        elif result['error']:
-            raise ProcessingException(result['error'])
+        elif isinstance(result, dict) and 'error' in result:
+            raise ProcessingError(result['error'])
+        else:
+            raise ProcessingError("Unexpected answer from server: {}".format(result))
 
     @api
     def get_task_info(self, uuid):
@@ -108,9 +112,9 @@ class ProcessingNode(models.Model):
         if isinstance(result, dict) and 'uuid' in result:
             return result
         elif isinstance(result, dict) and 'error' in result:
-            raise ProcessingException(result['error'])
+            raise ProcessingError(result['error'])
         else:
-            raise ProcessingException("Unknown result from task info: {}".format(result))
+            raise ProcessingError("Unknown result from task info: {}".format(result))
 
     @api
     def get_task_console_output(self, uuid, line):
@@ -121,11 +125,11 @@ class ProcessingNode(models.Model):
         api_client = self.api_client()
         result = api_client.task_output(uuid, line)
         if isinstance(result, dict) and 'error' in result:
-            raise ProcessingException(result['error'])
+            raise ProcessingError(result['error'])
         elif isinstance(result, list):
             return "".join(result)
         else:
-            raise ProcessingException("Unknown response for console output: {}".format(result))
+            raise ProcessingError("Unknown response for console output: {}".format(result))
 
     @api
     def cancel_task(self, uuid):
@@ -151,7 +155,7 @@ class ProcessingNode(models.Model):
         api_client = self.api_client()
         res = api_client.task_download(uuid, asset)
         if isinstance(res, dict) and 'error' in res:
-            raise ProcessingException(res['error'])
+            raise ProcessingError(res['error'])
         else:
             return res
 
@@ -172,11 +176,11 @@ class ProcessingNode(models.Model):
         :return: True on success, raises ProcessingException otherwise
         """
         if isinstance(result, dict) and 'error' in result:
-            raise ProcessingException(result['error'])
+            raise ProcessingError(result['error'])
         elif isinstance(result, dict) and 'success' in result:
             return True
         else:
-            raise ProcessingException("Unknown response: {}".format(result))
+            raise ProcessingError("Unknown response: {}".format(result))
 
     class Meta:
         permissions = (
@@ -190,11 +194,12 @@ def auto_update_node_info(sender, instance, created, **kwargs):
     if created:
         try:
             instance.update_node_info()
-        except ProcessingException:
+        except ProcessingError:
             pass
 
 class ProcessingNodeUserObjectPermission(UserObjectPermissionBase):
     content_object = models.ForeignKey(ProcessingNode)
 
+
 class ProcessingNodeGroupObjectPermission(GroupObjectPermissionBase):
-        content_object = models.ForeignKey(ProcessingNode)
+    content_object = models.ForeignKey(ProcessingNode)

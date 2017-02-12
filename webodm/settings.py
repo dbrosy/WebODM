@@ -11,6 +11,8 @@ https://docs.djangoproject.com/en/1.10/ref/settings/
 """
 
 import os, sys
+
+import datetime
 from django.contrib.messages import constants as messages
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
@@ -27,7 +29,7 @@ SECRET_KEY = 'gmarsutd!fee6_58=6k)2je#o2^&&)ovu1svjg8k^(a!7qa7r&'
 DEBUG = True
 INTERNAL_IPS = ['127.0.0.1']
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -220,10 +222,21 @@ REST_FRAMEWORK = {
     'rest_framework.filters.DjangoFilterBackend',
     'rest_framework.filters.OrderingFilter',
   ],
+  'DEFAULT_AUTHENTICATION_CLASSES': (
+    'rest_framework.authentication.SessionAuthentication',
+    'rest_framework.authentication.BasicAuthentication',
+    'rest_framework_jwt.authentication.JSONWebTokenAuthentication',
+  ),
   'PAGE_SIZE': 10,
 }
 
+JWT_AUTH = {
+    'JWT_EXPIRATION_DELTA': datetime.timedelta(hours=6),
+}
+
 TESTING = sys.argv[1:2] == ['test']
+if TESTING:
+    MEDIA_ROOT = os.path.join(BASE_DIR, 'app', 'media_test')
 
 try:
     from .local_settings import *
