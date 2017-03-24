@@ -15,7 +15,7 @@ from rest_framework.test import APIClient
 from app import pending_actions
 from app import scheduler
 from django.utils import timezone
-from app.models import Project, Task, ImageUpload, task_directory_path
+from app.models import Project, Task, ImageUpload, task_directory_path, full_task_directory_path
 from app.tests.classes import BootTransactionTestCase
 from nodeodm import status_codes
 from nodeodm.models import ProcessingNode, OFFLINE_MINUTES
@@ -28,11 +28,11 @@ from app.testwatch import testWatch
 from webodm import settings
 logger = logging.getLogger('app.logger')
 
-DELAY = 1  # time to sleep for during process launch, background processing, etc.
+DELAY = 2  # time to sleep for during process launch, background processing, etc.
 
-def start_processing_node():
+def start_processing_node(*args):
     current_dir = os.path.dirname(os.path.realpath(__file__))
-    node_odm = subprocess.Popen(['node', 'index.js', '--port', '11223', '--test'], shell=False,
+    node_odm = subprocess.Popen(['node', 'index.js', '--port', '11223', '--test'] + list(args), shell=False,
                                 cwd=os.path.join(current_dir, "..", "..", "nodeodm", "external", "node-OpenDroneMap"))
     time.sleep(DELAY)  # Wait for the server to launch
     return node_odm
@@ -170,9 +170,7 @@ class TestApiTask(BootTransactionTestCase):
         self.assertTrue(res.status_code == status.HTTP_404_NOT_FOUND)
 
         # Cannot download assets (they don't exist yet)
-        assets = ["all", "geotiff", "las", "csv", "ply"]
-
-        for asset in assets:
+        for asset in task.ASSET_DOWNLOADS:
             res = client.get("/api/projects/{}/tasks/{}/download/{}/".format(project.id, task.id, asset))
             self.assertTrue(res.status_code == status.HTTP_404_NOT_FOUND)
 
@@ -202,7 +200,7 @@ class TestApiTask(BootTransactionTestCase):
 
         # Processing should have started and a UUID is assigned
         task.refresh_from_db()
-        self.assertTrue(task.status == status_codes.RUNNING)
+        self.assertTrue(task.status in [status_codes.RUNNING, status_codes.COMPLETED]) # Sometimes the task finishes and we can't test for RUNNING state
         self.assertTrue(len(task.uuid) > 0)
 
         time.sleep(DELAY)
@@ -213,9 +211,12 @@ class TestApiTask(BootTransactionTestCase):
         self.assertTrue(task.status == status_codes.COMPLETED)
 
         # Can download assets
-        for asset in assets:
+        for asset in task.ASSET_DOWNLOADS:
             res = client.get("/api/projects/{}/tasks/{}/download/{}/".format(project.id, task.id, asset))
             self.assertTrue(res.status_code == status.HTTP_200_OK)
+
+        # A textured mesh archive file should exist
+        self.assertTrue(os.path.exists(task.assets_path(task.get_textured_model_filename())))
 
         # Can download raw assets
         res = client.get("/api/projects/{}/tasks/{}/assets/odm_orthophoto/odm_orthophoto.tif".format(project.id, task.id))
@@ -302,7 +303,7 @@ class TestApiTask(BootTransactionTestCase):
         # Another step and it should have acquired a UUID
         scheduler.process_pending_tasks()
         task.refresh_from_db()
-        self.assertTrue(task.status is status_codes.RUNNING)
+        self.assertTrue(task.status in [status_codes.RUNNING, status_codes.COMPLETED])
         self.assertTrue(len(task.uuid) > 0)
 
         # Another step and it should be completed
@@ -324,6 +325,56 @@ class TestApiTask(BootTransactionTestCase):
         # and not fail
         task.refresh_from_db()
         self.assertTrue(task.last_error is None)
+
+
+        # Reassigning the task to another project should move its assets
+        self.assertTrue(os.path.exists(full_task_directory_path(task.id, project.id)))
+        self.assertTrue(task.orthophoto is not None)
+        self.assertTrue('project/{}/'.format(project.id) in task.orthophoto.name)
+        self.assertTrue(len(task.imageupload_set.all()) == 2)
+        for image in task.imageupload_set.all():
+            self.assertTrue('project/{}/'.format(project.id) in image.image.path)
+
+        task.project = other_project
+        task.save()
+        task.refresh_from_db()
+        self.assertFalse(os.path.exists(full_task_directory_path(task.id, project.id)))
+        self.assertTrue(os.path.exists(full_task_directory_path(task.id, other_project.id)))
+
+        self.assertTrue('project/{}/'.format(other_project.id) in task.orthophoto.name)
+
+        for image in task.imageupload_set.all():
+            self.assertTrue('project/{}/'.format(other_project.id) in image.image.path)
+
+        node_odm.terminate()
+
+        # Restart node-odm as to not generate orthophotos
+        testWatch.clear()
+        node_odm = start_processing_node("--test_skip_orthophotos")
+        res = client.post("/api/projects/{}/tasks/".format(project.id), {
+            'images': [image1, image2],
+            'name': 'test_task_no_orthophoto',
+            'processing_node': pnode.id,
+            'auto_processing_node': 'false'
+        }, format="multipart")
+        self.assertTrue(res.status_code == status.HTTP_201_CREATED)
+
+        scheduler.process_pending_tasks()
+        time.sleep(DELAY)
+        scheduler.process_pending_tasks()
+
+        task = Task.objects.get(pk=res.data['id'])
+        self.assertTrue(task.status == status_codes.COMPLETED)
+
+        # Orthophoto files/directories should be missing
+        self.assertFalse(os.path.exists(task.assets_path("odm_orthophoto", "odm_orthophoto.tif")))
+        self.assertFalse(os.path.exists(task.assets_path("orthophoto_tiles")))
+
+        # Available assets should be missing the geotiff type
+        # but others such as texturedmodel should be available
+        res = client.get("/api/projects/{}/tasks/{}/".format(project.id, task.id))
+        self.assertFalse('geotiff' in res.data['available_assets'])
+        self.assertTrue('texturedmodel' in res.data['available_assets'])
 
         image1.close()
         image2.close()
