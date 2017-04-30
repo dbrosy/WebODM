@@ -236,10 +236,18 @@ class Task(models.Model):
             map = {
                 'all': 'all.zip',
                 'geotiff': os.path.join('odm_orthophoto', 'odm_orthophoto.tif'),
-                'las': os.path.join('odm_georeferencing', 'odm_georeferenced_model.ply.las'),
+                'las': os.path.join('odm_georeferencing', 'odm_georeferenced_model.las'),
                 'ply': os.path.join('odm_georeferencing', 'odm_georeferenced_model.ply'),
                 'csv': os.path.join('odm_georeferencing', 'odm_georeferenced_model.csv')
             }
+
+            # BEGIN MIGRATION
+            # Temporary check for naming migration from *model.ply.las to *model.las
+            # This can be deleted at some point in the future
+            if asset == 'las' and not os.path.exists(self.assets_path(map['las'])):
+                logger.info("migration: using odm_georeferenced_model.ply.las instead of odm_georeferenced_model.las")
+                map['las'] = os.path.join('odm_georeferencing', 'odm_georeferenced_model.ply.las')
+            # END MIGRATION
 
             if asset in map:
                 return self.assets_path(map[asset])
@@ -297,9 +305,16 @@ class Task(models.Model):
                     # Do we need to cancel the task on the processing node?
                     logger.info("Canceling {}".format(self))
                     if self.processing_node and self.uuid:
-                        self.processing_node.cancel_task(self.uuid)
+                        # Attempt to cancel the task on the processing node
+                        # We don't care if this fails (we tried)
+                        try:
+                            self.processing_node.cancel_task(self.uuid)
+                            self.status = None
+                        except ProcessingException:
+                            logger.warning("Could not cancel {} on processing node. We'll proceed anyway...".format(self))
+                            self.status = status_codes.CANCELED
+
                         self.pending_action = None
-                        self.status = None
                         self.save()
                     else:
                         raise ProcessingError("Cannot cancel a task that has no processing node or UUID")

@@ -58,10 +58,11 @@ We recommend that you read the [Docker Documentation](https://docs.docker.com/) 
 Sympthoms | Possible Solutions
 --------- | ------------------
 While starting WebODM you get: `from six.moves import _thread as thread ImportError: cannot import name _thread` | Try running: `sudo pip install --ignore-installed six`
-Task output or console shows one of the following:<ul><li>`MemoryError`</li><li>`Killed`</li></ul> |  Make sure that your Docker environment has enough RAM allocated. http://stackoverflow.com/a/39720010
+Task output or console shows one of the following:<ul><li>`MemoryError`</li><li>`Killed`</li></ul> |  Make sure that your Docker environment has enough RAM allocated: [MacOS Instructions](http://stackoverflow.com/a/39720010), [Windows Instructions](https://docs.docker.com/docker-for-windows/#advanced)
 After an update, you get: `django.contrib.auth.models.DoesNotExist: Permission matching query does not exist.` | Try to remove your WebODM folder and start from a fresh git clone
 Task fails with `Process exited with code null`, no task console output | If the computer running node-opendronemap is using an old or 32bit CPU, you need to compile [OpenDroneMap](https://github.com/OpenDroneMap/OpenDroneMap) from sources and setup node-opendronemap natively. You cannot use docker. Docker images work with CPUs with 64-bit extensions, MMX, SSE, SSE2, SSE3 and SSSE3 instruction set support or higher.
 On Windows, docker-compose fails with `Failed to execute the script docker-compose` | Make sure you have enabled VT-x virtualization in the BIOS
+Cannot access WebODM using Microsoft Edge on Windows 10 | Try to tweak your internet properties according to [these instructions](http://www.hanselman.com/blog/FixedMicrosoftEdgeCantSeeOrOpenVirtualBoxhostedLocalWebSites.aspx)
 
 Have you had other issues? Please [report them](https://github.com/OpenDroneMap/WebODM/issues/new) so that we can include them in this document.
 
@@ -76,6 +77,50 @@ If you want to run WebODM in production, make sure to change the `SECRET_KEY` va
 ## API Docs
 
 See the [API documentation page](https://opendronemap.github.io/WebODM/).
+
+## Run the docker version as a Linux Service
+
+If you wish to run the docker version with auto start/monitoring/stop, etc, as a systemd style Linux Service, a systemd unit file is included in the service folder of the repo.
+
+This should work on any Linux OS capable of running WebODM, and using a SystemD based service daemon (such as Ubuntu 16.04 server for example).
+
+This has only been tested on Ubuntu 16.04 server.
+
+The following pre-requisites are required:
+ * Requires odm user
+ * Requires docker installed via system (ubuntu: `sudo apt-get install docker.io`)
+ * Requires screen to be installed
+ * Requires odm user member of docker group
+ * Required WebODM directory checked out to /opt/WebODM
+ * Requires that /opt/WebODM is recursively owned by odm:odm
+
+If all pre-requisites have been met, and repository is checked out to /opt/WebODM folder, then you can use the following steps to enable and manage the service:
+
+First, to install the service, and enable the service to run at startup from now on:
+```bash
+sudo systemctl enable /opt/WebODM/service/webodm.service
+```
+
+To manually stop the service:
+```bash
+sudo systemctl stop webodm
+```
+
+To manually start the service:
+```bash
+sudo systemctl start webodm
+```
+
+To manually check service status:
+```bash
+sudo systemctl status webodm
+```
+
+The service runs within a screen session, so as the odm user you can easily jump into the screen session by using:
+```bash
+screen -r webodm
+```
+(if you wish to exit the screen session, don't use ctrl+c, that will kill webodm, use `CTRL+A` then hit the `D` key)
 
 ## Run it natively
 
